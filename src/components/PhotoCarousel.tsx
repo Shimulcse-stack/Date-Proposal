@@ -4,7 +4,8 @@ import { ChevronLeft, ChevronRight, Pause, Play, Heart, Camera, Plus, Trash2, Up
 
 import strollImg from '../assets/images/couple_stroll_dreamy_1782743565363.jpg';
 import sunsetImg from '../assets/images/sunset_lovers_watercolor_1782743584276.jpg';
-import cafeImg from '../assets/images/coffe.jpeg';
+import cafeImg from '../assets/images/cozy_cafe_date_1782743599943.jpg';
+
 interface Memory {
   id: number;
   imageUrl: string;
@@ -42,6 +43,46 @@ const DEFAULT_MEMORIES: Memory[] = [
   }
 ];
 
+// Helper to compress image in client browser before upload or localStorage save
+const compressImage = (base64Str: string, maxWidth = 800, maxHeight = 800, quality = 0.85): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(base64Str);
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => {
+      resolve(base64Str); // Fallback to original
+    };
+  });
+};
+
 export default function PhotoCarousel() {
   const [memories, setMemories] = useState<Memory[]>(DEFAULT_MEMORIES);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -60,21 +101,49 @@ export default function PhotoCarousel() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load custom memories from server
+  // Load custom memories from server AND localStorage
   const loadMemories = async () => {
+    // 1. Load from LocalStorage
+    let localCustom: Memory[] = [];
+    try {
+      const localRaw = localStorage.getItem('custom_memories');
+      if (localRaw) {
+        localCustom = JSON.parse(localRaw).map((m: any) => ({ ...m, isCustom: true }));
+      }
+    } catch (err) {
+      console.error("Could not parse local memories:", err);
+    }
+
+    // 2. Try loading from API
+    let serverCustom: Memory[] = [];
     try {
       const res = await fetch('/api/memories');
       if (res.ok) {
         const data = await res.json();
-        const custom: Memory[] = (data.memories || []).map((m: any) => ({ ...m, isCustom: true }));
-        if (custom.length > 0) {
-          setMemories([...custom, ...DEFAULT_MEMORIES]);
-        } else {
-          setMemories(DEFAULT_MEMORIES);
-        }
+        serverCustom = (data.memories || []).map((m: any) => ({ ...m, isCustom: true }));
       }
     } catch (e) {
-      console.error("Could not load memories from server, using defaults:", e);
+      console.warn("Could not load memories from API (expected on Vercel):", e);
+    }
+
+    // 3. Merge memories (avoid duplicates by ID)
+    const combinedCustomMap = new Map<number, Memory>();
+    
+    // Add server memories first
+    serverCustom.forEach(m => {
+      if (m.id) combinedCustomMap.set(m.id, m);
+    });
+    
+    // Add local memories (which overwrite or fill in)
+    localCustom.forEach(m => {
+      if (m.id) combinedCustomMap.set(m.id, m);
+    });
+
+    const combinedCustom = Array.from(combinedCustomMap.values()).sort((a, b) => b.id - a.id); // newest first
+
+    if (combinedCustom.length > 0) {
+      setMemories([...combinedCustom, ...DEFAULT_MEMORIES]);
+    } else {
       setMemories(DEFAULT_MEMORIES);
     }
   };
@@ -109,20 +178,27 @@ export default function PhotoCarousel() {
     setCurrentIndex(index);
   };
 
-  // Base64 file reader
+  // Base64 file reader with automatic client-side compression!
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 25 * 1024 * 1024) { // 25MB limit
-      setUploadError("Image is too large. Please choose an image smaller than 25MB.");
-      return;
-    }
-
     const reader = new FileReader();
-    reader.onloadend = () => {
-      setSelectedImageBase64(reader.result as string);
+    reader.onloadend = async () => {
+      const originalBase64 = reader.result as string;
       setUploadError('');
+      
+      try {
+        setIsUploading(true);
+        // Compress image immediately so everything is lightweight and fast!
+        const compressed = await compressImage(originalBase64);
+        setSelectedImageBase64(compressed);
+      } catch (err) {
+        console.error("Compression failed:", err);
+        setSelectedImageBase64(originalBase64); // Fallback
+      } finally {
+        setIsUploading(false);
+      }
     };
     reader.onerror = () => {
       setUploadError("Error reading file. Please try another image.");
@@ -145,8 +221,30 @@ export default function PhotoCarousel() {
     setIsUploading(true);
     setUploadError('');
 
+    const newMemoryId = Date.now();
+    const newMemory: Memory = {
+      id: newMemoryId,
+      imageUrl: selectedImageBase64,
+      title: newTitle.trim(),
+      englishTitle: newEnglishTitle.trim() || 'Sweet Moment',
+      caption: newCaption.trim(),
+      dateStr: newDateStr.trim() || 'Special Memory',
+      isCustom: true
+    };
+
+    // 1. ALWAYS Save to LocalStorage immediately (Works perfectly on Vercel!)
     try {
-      const res = await fetch('/api/memories', {
+      const localRaw = localStorage.getItem('custom_memories');
+      const localCustom = localRaw ? JSON.parse(localRaw) : [];
+      localCustom.unshift(newMemory);
+      localStorage.setItem('custom_memories', JSON.stringify(localCustom));
+    } catch (err) {
+      console.error("LocalStorage write failed:", err);
+    }
+
+    // 2. Try saving to server API as background backup (ignore fail on Vercel)
+    try {
+      await fetch('/api/memories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -157,31 +255,22 @@ export default function PhotoCarousel() {
           dateStr: newDateStr.trim() || 'Special Memory'
         })
       });
-
-      if (!res.ok) {
-        throw new Error("Failed to save memory on server");
-      }
-
-      const data = await res.json();
-      if (data.success) {
-        // Reset states
-        setNewTitle('');
-        setNewEnglishTitle('');
-        setNewCaption('');
-        setNewDateStr('');
-        setSelectedImageBase64(null);
-        setShowUploadModal(false);
-        
-        // Reload list and jump to the newly added memory (it will be custom, prepended)
-        await loadMemories();
-        setCurrentIndex(0);
-      }
     } catch (err) {
-      console.error(err);
-      setUploadError("আপলোড করতে সমস্যা হয়েছে। আবার চেষ্টা করো প্রিয়।");
-    } finally {
-      setIsUploading(false);
+      console.warn("Background API upload skipped/failed (Vercel offline-first mode active):", err);
     }
+
+    // Reset states
+    setNewTitle('');
+    setNewEnglishTitle('');
+    setNewCaption('');
+    setNewDateStr('');
+    setSelectedImageBase64(null);
+    setShowUploadModal(false);
+    setIsUploading(false);
+    
+    // Reload lists and jump to the newly added memory (at index 0)
+    await loadMemories();
+    setCurrentIndex(0);
   };
 
   // Delete memory
@@ -191,17 +280,29 @@ export default function PhotoCarousel() {
       return;
     }
 
+    // 1. Remove from LocalStorage
     try {
-      const res = await fetch(`/api/memories/${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        await loadMemories();
-        setCurrentIndex(0);
+      const localRaw = localStorage.getItem('custom_memories');
+      if (localRaw) {
+        const localCustom = JSON.parse(localRaw);
+        const filtered = localCustom.filter((m: any) => m.id !== id);
+        localStorage.setItem('custom_memories', JSON.stringify(filtered));
       }
     } catch (err) {
-      console.error("Error deleting:", err);
+      console.error("LocalStorage delete failed:", err);
     }
+
+    // 2. Try removing from server API as background (ignore fail on Vercel)
+    try {
+      await fetch(`/api/memories/${id}`, {
+        method: 'DELETE'
+      });
+    } catch (err) {
+      console.warn("Background API delete skipped/failed:", err);
+    }
+
+    await loadMemories();
+    setCurrentIndex(0);
   };
 
   const slideVariants = {
@@ -423,8 +524,8 @@ export default function PhotoCarousel() {
                       </button>
                     </div>
                   ) : (
-                    <div 
-                      onClick={() => fileInputRef.current?.click()}
+                    <label 
+                      htmlFor="mobile-photo-upload"
                       className="w-full h-40 rounded-2xl border-2 border-dashed border-pink-200 hover:border-brand-rose bg-brand-peach/10 hover:bg-brand-peach/20 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all p-4 text-center group"
                     >
                       <div className="p-3 bg-white rounded-full shadow-md group-hover:scale-110 transition-transform">
@@ -432,11 +533,12 @@ export default function PhotoCarousel() {
                       </div>
                       <span className="text-xs font-bold text-brand-maroon">গ্যালারি থেকে ছবি বেছে নাও</span>
                       <span className="text-[10px] text-slate-400">Click to pick a photo (Max 25MB)</span>
-                    </div>
+                    </label>
                   )}
 
                   <input 
                     type="file" 
+                    id="mobile-photo-upload"
                     ref={fileInputRef} 
                     onChange={handleFileChange} 
                     accept="image/*" 

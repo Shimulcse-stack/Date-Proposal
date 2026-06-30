@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Heart, Sparkles, Calendar, Clock, Smile, MapPin, MessageCircleHeart, Info } from 'lucide-react';
+import { Heart, Sparkles, Calendar, Clock, Smile, MapPin, MessageCircleHeart, Info, Copy, Check } from 'lucide-react';
 import FloatingHearts from './components/FloatingHearts';
 import { ConfettiEffect, ConfettiRef } from './components/ConfettiEffect';
 import ProposalPage from './components/ProposalPage';
@@ -28,6 +28,11 @@ export default function App() {
 
   const handleYes = (noClicks: number) => {
     setNoClicksCount(noClicks);
+    try {
+      localStorage.setItem('local_no_clicks_count', noClicks.toString());
+    } catch (err) {
+      console.error("Failed to save no clicks locally", err);
+    }
     // Move to Date Selection phase
     setStage('date-selector');
   };
@@ -35,6 +40,32 @@ export default function App() {
   const handleConfirm = (details: DateDetails) => {
     setConfirmedDetails(details);
     setStage('confirmed');
+
+    // Save to local storage for offline durability
+    try {
+      const localRaw = localStorage.getItem('local_responses');
+      const list = localRaw ? JSON.parse(localRaw) : [];
+      const alreadyExists = list.some((item: any) => 
+        item.selectedDate === details.selectedDate && 
+        item.selectedTime === details.selectedTime && 
+        item.dateType === details.dateType
+      );
+      if (!alreadyExists) {
+        list.unshift({
+          id: "resp_" + Date.now().toString(36),
+          timestamp: new Date().toISOString(),
+          selectedDate: details.selectedDate,
+          selectedTime: details.selectedTime,
+          dateType: details.dateType,
+          customNotes: details.customNotes,
+          status: "accepted"
+        });
+        localStorage.setItem('local_responses', JSON.stringify(list));
+      }
+    } catch (err) {
+      console.error("Failed to save local response", err);
+    }
+
     // Double burst of confetti on confirmation!
     setTimeout(() => {
       triggerConfetti(window.innerWidth / 3, window.innerHeight / 2);
@@ -113,7 +144,7 @@ export default function App() {
               transition={{ duration: 0.5, type: "spring", damping: 18 }}
               className="w-full max-w-xl"
             >
-              <ConfirmedView details={confirmedDetails} />
+              <ConfirmedView details={confirmedDetails} noClicksCount={noClicksCount} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -144,8 +175,40 @@ export default function App() {
 }
 
 // Separate component for the Success/Confirmed View
-function ConfirmedView({ details }: { details: DateDetails }) {
+function ConfirmedView({ details, noClicksCount }: { details: DateDetails; noClicksCount: number }) {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0, isPast: false });
+  const [copied, setCopied] = useState(false);
+
+  const generateSyncCode = () => {
+    try {
+      const syncObj = {
+        noClicksCount,
+        responses: [
+          {
+            id: "resp_" + Date.now().toString(36),
+            timestamp: new Date().toISOString(),
+            selectedDate: details.selectedDate,
+            selectedTime: details.selectedTime,
+            dateType: details.dateType,
+            customNotes: details.customNotes,
+            status: "accepted"
+          }
+        ]
+      };
+      // Encode beautifully as a base64 string
+      return btoa(encodeURIComponent(JSON.stringify(syncObj)));
+    } catch (err) {
+      return "";
+    }
+  };
+
+  const handleCopy = () => {
+    const code = generateSyncCode();
+    if (!code) return;
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
+  };
 
   // Extrapolate the exact target date
   useEffect(() => {
@@ -277,6 +340,40 @@ function ConfirmedView({ details }: { details: DateDetails }) {
             </p>
           </div>
         )}
+      </div>
+
+      {/* Offline sync block for Vercel/stateless support */}
+      <div className="w-full bg-rose-50/50 border border-pink-100 rounded-[28px] p-4 sm:p-5 mt-6 text-left space-y-3">
+        <h5 className="font-serif font-bold text-xs text-brand-maroon flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 text-brand-cherry animate-pulse" />
+          বয়ফ্রেন্ড ড্যাশবোর্ড সিঙ্ক কোড 🔑
+        </h5>
+        <p className="text-[11px] text-slate-500 leading-relaxed font-sans">
+          তোমরা যদি আলাদা ডিভাইসে লিংকটি ব্যবহার করে থাকো, তবে সার্ভার রিস্টার্টের কারণে ড্যাশবোর্ডের বুকিং মুছে যেতে পারে। নিচের এই স্পেশাল কোডটি কপি করে তোমার বয়ফ্রেন্ডকে পাঠিয়ে দাও! সে তার ড্যাশবোর্ডে এটি পেস্ট করলেই মুহূর্তে সব হিস্ট্রি দেখতে পাবে।
+        </p>
+        <div className="flex gap-2 items-center bg-white border border-pink-100 rounded-xl p-2.5">
+          <input
+            readOnly
+            value={generateSyncCode()}
+            className="flex-1 bg-transparent text-[10px] font-mono text-slate-500 truncate outline-none select-all"
+          />
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1 bg-brand-maroon hover:bg-brand-cherry text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3 h-3 text-emerald-300" />
+                <span>কপি হয়েছে</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3" />
+                <span>কপি করো</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="mt-8 border-t border-brand-peach pt-6 text-center w-full">

@@ -24,20 +24,73 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
   const [noClicksCount, setNoClicksCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
+  const [syncCodeInput, setSyncCodeInput] = useState('');
+  const [syncMsg, setSyncMsg] = useState({ text: '', type: '' });
+
   const fetchDashboardData = async () => {
     setIsLoading(true);
+    
+    // 1. Load from local storage fallback (for durability on Vercel)
+    let localResps: DateResponse[] = [];
+    let localNoClicks = 0;
+    try {
+      const rawResps = localStorage.getItem('local_responses');
+      if (rawResps) {
+        localResps = JSON.parse(rawResps);
+      }
+      const rawNoClicks = localStorage.getItem('local_no_clicks_count');
+      if (rawNoClicks) {
+        localNoClicks = parseInt(rawNoClicks, 10) || 0;
+      }
+    } catch (err) {
+      console.error('Error reading offline localStorage data:', err);
+    }
+
+    // 2. Load from server
+    let serverResps: DateResponse[] = [];
+    let serverNoClicks = 0;
     try {
       const res = await fetch('/api/responses');
       if (res.ok) {
         const data = await res.json();
-        setResponses(data.responses || []);
-        setNoClicksCount(data.stats?.noClicksCount || 0);
+        serverResps = data.responses || [];
+        serverNoClicks = data.stats?.noClicksCount || 0;
       }
     } catch (err) {
-      console.error('Error fetching admin data', err);
-    } finally {
-      setIsLoading(false);
+      console.warn('Network error loading responses (Vercel offline-first active):', err);
     }
+
+    // 3. Merge data
+    const mergedNoClicks = Math.max(localNoClicks, serverNoClicks);
+    setNoClicksCount(mergedNoClicks);
+
+    // Deduplicate responses by comparing key details
+    const seen = new Set<string>();
+    const mergedResponses: DateResponse[] = [];
+
+    // Add local ones first
+    localResps.forEach(r => {
+      const key = `${r.selectedDate}|${r.selectedTime}|${r.dateType}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        mergedResponses.push(r);
+      }
+    });
+
+    // Add server ones
+    serverResps.forEach(r => {
+      const key = `${r.selectedDate}|${r.selectedTime}|${r.dateType}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        mergedResponses.push(r);
+      }
+    });
+
+    // Sort newest bookings first
+    mergedResponses.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    setResponses(mergedResponses);
+    setIsLoading(false);
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -57,22 +110,76 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
     if (!window.confirm('সব রেসপন্স ডিলিট করে নতুন করে শুরু করতে চাও?')) return;
 
     try {
-      // Create a clean reset endpoint or override RESPONSES_FILE locally via a clear/delete endpoint
-      // We can just send a clear command. Let's make a mock clear or write code in server.ts for it,
-      // wait, let's look at server.ts to see if we have clear support or we can implement it.
-      // In server.ts we didn't add a clear endpoint yet, let's make sure we have one or we can just mock clear
-      // since the boyfriend can also do it. Actually, we can easily add a DELETE endpoint to our server, but
-      // first let's see if we can just trigger a DELETE fetch to /api/responses/clear
-      const res = await fetch('/api/responses', { method: 'DELETE' });
-      if (res.ok || res.status === 404) {
-        setResponses([]);
-        setNoClicksCount(0);
-        alert('সফলভাবে সব ডিলিট করা হয়েছে! 💖');
-      }
+      // Clear localStorage
+      localStorage.removeItem('local_responses');
+      localStorage.removeItem('local_no_clicks_count');
+
+      // Clear server
+      await fetch('/api/responses', { method: 'DELETE' });
     } catch (e) {
-      // Fallback
-      setResponses([]);
-      setNoClicksCount(0);
+      console.warn("Could not clear server responses:", e);
+    }
+
+    setResponses([]);
+    setNoClicksCount(0);
+    alert('সফলভাবে সব ডিলিট করা হয়েছে! 💖');
+  };
+
+  const handleManualSync = () => {
+    if (!syncCodeInput.trim()) {
+      setSyncMsg({ text: 'দয়া করে একটি কোড পেস্ট করো!', type: 'error' });
+      return;
+    }
+
+    try {
+      // Decode base64 sync token
+      const decodedRaw = decodeURIComponent(atob(syncCodeInput.trim()));
+      const parsed = JSON.parse(decodedRaw);
+
+      if (!parsed || (!parsed.responses && typeof parsed.noClicksCount !== 'number')) {
+        throw new Error("Invalid sync code format");
+      }
+
+      // 1. Update noClicksCount locally
+      if (typeof parsed.noClicksCount === 'number') {
+        const localNoClicks = localStorage.getItem('local_no_clicks_count');
+        const currentNoClicks = localNoClicks ? parseInt(localNoClicks, 10) || 0 : 0;
+        const finalNoClicks = Math.max(currentNoClicks, parsed.noClicksCount);
+        localStorage.setItem('local_no_clicks_count', finalNoClicks.toString());
+      }
+
+      // 2. Update responses locally
+      if (Array.isArray(parsed.responses)) {
+        const localRaw = localStorage.getItem('local_responses');
+        const currentLocal = localRaw ? JSON.parse(localRaw) : [];
+
+        parsed.responses.forEach((newResp: any) => {
+          const alreadyExists = currentLocal.some((existing: any) => 
+            existing.selectedDate === newResp.selectedDate && 
+            existing.selectedTime === newResp.selectedTime && 
+            existing.dateType === newResp.dateType
+          );
+          if (!alreadyExists) {
+            currentLocal.unshift(newResp);
+          }
+        });
+
+        localStorage.setItem('local_responses', JSON.stringify(currentLocal));
+      }
+
+      setSyncMsg({ text: 'সফলভাবে সিঙ্ক সম্পন্ন হয়েছে! 💖', type: 'success' });
+      setSyncCodeInput('');
+      
+      // Reload everything immediately!
+      fetchDashboardData();
+
+      setTimeout(() => {
+        setSyncMsg({ text: '', type: '' });
+      }, 4000);
+
+    } catch (err) {
+      console.error(err);
+      setSyncMsg({ text: 'ভুল কোড! দয়া করে সঠিক কোডটি কপি করে এখানে পেস্ট করো।', type: 'error' });
     }
   };
 
@@ -170,6 +277,36 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
                     : `সে ${noClicksCount} বার অসম্ভব চেষ্টা করেছে এড়ানোর কিন্তু আমাদের রোমান্টিক ফাঁদ থেকে বাঁচতে পারেনি! শেষমেষ রাজি হতেই হলো! 😂`}
                 </p>
               </div>
+            </div>
+
+            {/* Manual Sync Code Entry for Vercel/stateless persistence */}
+            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2.5">
+              <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wide">
+                <span>লাভ কোড দিয়ে অফলাইন সিঙ্ক 🔑</span>
+              </h4>
+              <p className="text-[10px] text-slate-500 leading-relaxed font-sans">
+                যদি তোমরা আলাদা ডিভাইস ব্যবহার করো, এবং Vercel রিস্টার্টের কারণে বুকিং হিস্ট্রি দেখতে না পাও, তবে গার্লফ্রেন্ডের কপি করা স্পেশাল কোডটি নিচে পেস্ট করে সিঙ্ক করো:
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="গার্লফ্রেন্ডের দেওয়া স্পেশাল কোডটি এখানে পেস্ট করো..."
+                  value={syncCodeInput}
+                  onChange={(e) => setSyncCodeInput(e.target.value)}
+                  className="flex-1 bg-white border border-slate-200 focus:border-brand-rose focus:ring-1 focus:ring-brand-rose rounded-xl px-3 py-2 text-xs outline-none transition-all font-mono"
+                />
+                <button
+                  onClick={handleManualSync}
+                  className="bg-brand-maroon hover:bg-brand-cherry text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  সিঙ্ক করো ⚡
+                </button>
+              </div>
+              {syncMsg.text && (
+                <p className={`text-[10px] font-bold ${syncMsg.type === 'success' ? 'text-emerald-600' : 'text-rose-600'} animate-fade-in`}>
+                  {syncMsg.text}
+                </p>
+              )}
             </div>
 
             {/* Responses List */}
