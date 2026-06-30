@@ -4,8 +4,7 @@ import { ChevronLeft, ChevronRight, Pause, Play, Heart, Camera, Plus, Trash2, Up
 
 import strollImg from '../assets/images/couple_stroll_dreamy_1782743565363.jpg';
 import sunsetImg from '../assets/images/sunset_lovers_watercolor_1782743584276.jpg';
-import cafeImg from '../assets/images/cozy_cafe_date_1782743599943.jpg';
-
+import cafeImg from '../assets/images/coffe.jpeg';
 interface Memory {
   id: number;
   imageUrl: string;
