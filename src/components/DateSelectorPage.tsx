@@ -14,9 +14,9 @@ interface DateSelectorPageProps {
 const ACTIVITIES = [
   {
     id: 'coffee',
-    title: 'Sunset Coffee ☕',
+    title: 'Sylhet Tour ',
     bangla: 'সানসেট কফি ডেট',
-    desc: 'একটি নিরিবিলি আরামদায়ক ক্যাফেতে কফির আড্ডা ও মিষ্টি গল্প।',
+    desc: 'একটি নিরিবিলি আরামদায়ক Sylhet Tour আড্ডা ও মিষ্টি গল্প।',
     color: 'from-amber-100 to-orange-100 border-amber-300 text-amber-900',
     iconColor: 'text-amber-600',
   },
