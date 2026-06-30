@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Heart, Lock, Calendar, Trash2, ShieldAlert, Award, ExternalLink, RefreshCw, X } from 'lucide-react';
+import { db } from '../lib/firebase';
+import { collection, doc, getDocs, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 
 interface BoyfriendDashboardProps {
   onClose: () => void;
@@ -46,22 +48,34 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
       console.error('Error reading offline localStorage data:', err);
     }
 
-    // 2. Load from server
-    let serverResps: DateResponse[] = [];
-    let serverNoClicks = 0;
+    // 2. Load from Firestore
+    let firestoreResps: DateResponse[] = [];
+    let firestoreNoClicks = 0;
     try {
-      const res = await fetch('/api/responses');
-      if (res.ok) {
-        const data = await res.json();
-        serverResps = data.responses || [];
-        serverNoClicks = data.stats?.noClicksCount || 0;
+      const querySnapshot = await getDocs(collection(db, "responses"));
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        firestoreResps.push({
+          id: docSnap.id,
+          timestamp: data.timestamp,
+          selectedDate: data.selectedDate,
+          selectedTime: data.selectedTime,
+          dateType: data.dateType,
+          customNotes: data.customNotes,
+          status: data.status
+        });
+      });
+
+      const statsSnap = await getDoc(doc(db, "stats", "dashboard_stats"));
+      if (statsSnap.exists()) {
+        firestoreNoClicks = statsSnap.data().noClicksCount || 0;
       }
     } catch (err) {
-      console.warn('Network error loading responses (Vercel offline-first active):', err);
+      console.error('Error loading responses from Firestore:', err);
     }
 
     // 3. Merge data
-    const mergedNoClicks = Math.max(localNoClicks, serverNoClicks);
+    const mergedNoClicks = Math.max(localNoClicks, firestoreNoClicks);
     setNoClicksCount(mergedNoClicks);
 
     // Deduplicate responses by comparing key details
@@ -77,8 +91,8 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
       }
     });
 
-    // Add server ones
-    serverResps.forEach(r => {
+    // Add Firestore ones
+    firestoreResps.forEach(r => {
       const key = `${r.selectedDate}|${r.selectedTime}|${r.dateType}`;
       if (!seen.has(key)) {
         seen.add(key);
@@ -88,6 +102,14 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
 
     // Sort newest bookings first
     mergedResponses.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    // Update LocalStorage cache
+    try {
+      localStorage.setItem('local_responses', JSON.stringify(mergedResponses));
+      localStorage.setItem('local_no_clicks_count', mergedNoClicks.toString());
+    } catch (e) {
+      console.warn("Could not sync cache:", e);
+    }
 
     setResponses(mergedResponses);
     setIsLoading(false);
@@ -114,10 +136,19 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
       localStorage.removeItem('local_responses');
       localStorage.removeItem('local_no_clicks_count');
 
-      // Clear server
+      // Clear Firestore responses
+      const querySnapshot = await getDocs(collection(db, "responses"));
+      for (const docSnap of querySnapshot.docs) {
+        await deleteDoc(doc(db, "responses", docSnap.id));
+      }
+
+      // Clear Firestore stats
+      await deleteDoc(doc(db, "stats", "dashboard_stats"));
+
+      // Clear server API as fallback
       await fetch('/api/responses', { method: 'DELETE' });
     } catch (e) {
-      console.warn("Could not clear server responses:", e);
+      console.warn("Could not clear responses:", e);
     }
 
     setResponses([]);
@@ -125,7 +156,7 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
     alert('সফলভাবে সব ডিলিট করা হয়েছে! 💖');
   };
 
-  const handleManualSync = () => {
+  const handleManualSync = async () => {
     if (!syncCodeInput.trim()) {
       setSyncMsg({ text: 'দয়া করে একটি কোড পেস্ট করো!', type: 'error' });
       return;
@@ -146,6 +177,14 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
         const currentNoClicks = localNoClicks ? parseInt(localNoClicks, 10) || 0 : 0;
         const finalNoClicks = Math.max(currentNoClicks, parsed.noClicksCount);
         localStorage.setItem('local_no_clicks_count', finalNoClicks.toString());
+
+        // Sync to Firestore
+        try {
+          const statsRef = doc(db, "stats", "dashboard_stats");
+          await setDoc(statsRef, { noClicksCount: finalNoClicks }, { merge: true });
+        } catch (err) {
+          console.error("Failed to sync stats to Firestore on manual load", err);
+        }
       }
 
       // 2. Update responses locally
@@ -153,7 +192,7 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
         const localRaw = localStorage.getItem('local_responses');
         const currentLocal = localRaw ? JSON.parse(localRaw) : [];
 
-        parsed.responses.forEach((newResp: any) => {
+        for (const newResp of parsed.responses) {
           const alreadyExists = currentLocal.some((existing: any) => 
             existing.selectedDate === newResp.selectedDate && 
             existing.selectedTime === newResp.selectedTime && 
@@ -162,7 +201,16 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
           if (!alreadyExists) {
             currentLocal.unshift(newResp);
           }
-        });
+
+          // Sync to Firestore
+          try {
+            const respId = newResp.id || ("resp_" + Date.now().toString(36));
+            const responseRef = doc(db, "responses", respId);
+            await setDoc(responseRef, newResp);
+          } catch (err) {
+            console.error("Failed to sync response to Firestore on manual load", err);
+          }
+        }
 
         localStorage.setItem('local_responses', JSON.stringify(currentLocal));
       }

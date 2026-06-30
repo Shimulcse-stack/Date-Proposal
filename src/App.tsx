@@ -7,6 +7,8 @@ import ProposalPage from './components/ProposalPage';
 import DateSelectorPage from './components/DateSelectorPage';
 import BoyfriendDashboard from './components/BoyfriendDashboard';
 import PhotoCarousel from './components/PhotoCarousel';
+import { db } from './lib/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 
 interface DateDetails {
   selectedDate: string;
@@ -26,20 +28,40 @@ export default function App() {
     confettiRef.current?.burst(x, y);
   };
 
-  const handleYes = (noClicks: number) => {
+  const handleYes = async (noClicks: number) => {
     setNoClicksCount(noClicks);
     try {
       localStorage.setItem('local_no_clicks_count', noClicks.toString());
     } catch (err) {
       console.error("Failed to save no clicks locally", err);
     }
+
+    // Save to Firestore stats collection
+    try {
+      const statsRef = doc(db, "stats", "dashboard_stats");
+      await setDoc(statsRef, { noClicksCount: noClicks }, { merge: true });
+    } catch (err) {
+      console.error("Failed to save stats to Firestore:", err);
+    }
+
     // Move to Date Selection phase
     setStage('date-selector');
   };
 
-  const handleConfirm = (details: DateDetails) => {
+  const handleConfirm = async (details: DateDetails) => {
     setConfirmedDetails(details);
     setStage('confirmed');
+
+    const respId = "resp_" + Date.now().toString(36);
+    const newResponse = {
+      id: respId,
+      timestamp: new Date().toISOString(),
+      selectedDate: details.selectedDate,
+      selectedTime: details.selectedTime,
+      dateType: details.dateType,
+      customNotes: details.customNotes,
+      status: "accepted"
+    };
 
     // Save to local storage for offline durability
     try {
@@ -51,19 +73,19 @@ export default function App() {
         item.dateType === details.dateType
       );
       if (!alreadyExists) {
-        list.unshift({
-          id: "resp_" + Date.now().toString(36),
-          timestamp: new Date().toISOString(),
-          selectedDate: details.selectedDate,
-          selectedTime: details.selectedTime,
-          dateType: details.dateType,
-          customNotes: details.customNotes,
-          status: "accepted"
-        });
+        list.unshift(newResponse);
         localStorage.setItem('local_responses', JSON.stringify(list));
       }
     } catch (err) {
       console.error("Failed to save local response", err);
+    }
+
+    // Save to Firestore responses collection
+    try {
+      const responseRef = doc(db, "responses", respId);
+      await setDoc(responseRef, newResponse);
+    } catch (err) {
+      console.error("Failed to save response to Firestore:", err);
     }
 
     // Double burst of confetti on confirmation!

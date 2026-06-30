@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight, Pause, Play, Heart, Camera, Plus, Trash2, Upload, X, Loader2, Sparkles } from 'lucide-react';
+import { db } from '../lib/firebase';
+import { collection, doc, setDoc, getDocs, deleteDoc } from 'firebase/firestore';
 
 import strollImg from '../assets/images/couple_stroll_dreamy_1782743565363.jpg';
 import sunsetImg from '../assets/images/sunset_lovers_watercolor_1782743584276.jpg';
@@ -101,9 +103,29 @@ export default function PhotoCarousel() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load custom memories from server AND localStorage
+  // Load custom memories from Firestore AND LocalStorage
   const loadMemories = async () => {
-    // 1. Load from LocalStorage
+    // 1. Load from Firestore
+    let firestoreCustom: Memory[] = [];
+    try {
+      const querySnapshot = await getDocs(collection(db, "memories"));
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        firestoreCustom.push({
+          id: Number(docSnap.id) || data.id,
+          imageUrl: data.imageUrl,
+          title: data.title,
+          englishTitle: data.englishTitle,
+          caption: data.caption,
+          dateStr: data.dateStr,
+          isCustom: true
+        });
+      });
+    } catch (e) {
+      console.error("Could not load memories from Firestore:", e);
+    }
+
+    // 2. Load from LocalStorage
     let localCustom: Memory[] = [];
     try {
       const localRaw = localStorage.getItem('custom_memories');
@@ -114,32 +136,27 @@ export default function PhotoCarousel() {
       console.error("Could not parse local memories:", err);
     }
 
-    // 2. Try loading from API
-    let serverCustom: Memory[] = [];
-    try {
-      const res = await fetch('/api/memories');
-      if (res.ok) {
-        const data = await res.json();
-        serverCustom = (data.memories || []).map((m: any) => ({ ...m, isCustom: true }));
-      }
-    } catch (e) {
-      console.warn("Could not load memories from API (expected on Vercel):", e);
-    }
-
     // 3. Merge memories (avoid duplicates by ID)
     const combinedCustomMap = new Map<number, Memory>();
     
-    // Add server memories first
-    serverCustom.forEach(m => {
+    // Add local memories first
+    localCustom.forEach(m => {
       if (m.id) combinedCustomMap.set(m.id, m);
     });
     
-    // Add local memories (which overwrite or fill in)
-    localCustom.forEach(m => {
+    // Add Firestore memories (which overwrite or fill in)
+    firestoreCustom.forEach(m => {
       if (m.id) combinedCustomMap.set(m.id, m);
     });
 
     const combinedCustom = Array.from(combinedCustomMap.values()).sort((a, b) => b.id - a.id); // newest first
+
+    // Sync back to local storage so cache is up-to-date
+    try {
+      localStorage.setItem('custom_memories', JSON.stringify(combinedCustom));
+    } catch (err) {
+      console.warn("Could not sync Firestore memories back to LocalStorage:", err);
+    }
 
     if (combinedCustom.length > 0) {
       setMemories([...combinedCustom, ...DEFAULT_MEMORIES]);
@@ -242,21 +259,21 @@ export default function PhotoCarousel() {
       console.error("LocalStorage write failed:", err);
     }
 
-    // 2. Try saving to server API as background backup (ignore fail on Vercel)
+    // 2. Save to Firestore Cloud Database
     try {
-      await fetch('/api/memories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageUrl: selectedImageBase64,
-          title: newTitle.trim(),
-          englishTitle: newEnglishTitle.trim() || 'Sweet Moment',
-          caption: newCaption.trim(),
-          dateStr: newDateStr.trim() || 'Special Memory'
-        })
+      const memoryDocRef = doc(db, "memories", String(newMemoryId));
+      await setDoc(memoryDocRef, {
+        id: newMemoryId,
+        imageUrl: selectedImageBase64,
+        title: newTitle.trim(),
+        englishTitle: newEnglishTitle.trim() || 'Sweet Moment',
+        caption: newCaption.trim(),
+        dateStr: newDateStr.trim() || 'Special Memory',
+        isCustom: true,
+        timestamp: Date.now()
       });
     } catch (err) {
-      console.warn("Background API upload skipped/failed (Vercel offline-first mode active):", err);
+      console.error("Firestore memory save failed:", err);
     }
 
     // Reset states
@@ -292,13 +309,12 @@ export default function PhotoCarousel() {
       console.error("LocalStorage delete failed:", err);
     }
 
-    // 2. Try removing from server API as background (ignore fail on Vercel)
+    // 2. Remove from Firestore Cloud Database
     try {
-      await fetch(`/api/memories/${id}`, {
-        method: 'DELETE'
-      });
+      const memoryDocRef = doc(db, "memories", String(id));
+      await deleteDoc(memoryDocRef);
     } catch (err) {
-      console.warn("Background API delete skipped/failed:", err);
+      console.error("Firestore delete failed:", err);
     }
 
     await loadMemories();

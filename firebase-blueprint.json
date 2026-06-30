@@ -1,0 +1,36 @@
+{
+  "collections": [
+    {
+      "name": "memories",
+      "fields": {
+        "id": "number",
+        "imageUrl": "string",
+        "title": "string",
+        "englishTitle": "string",
+        "caption": "string",
+        "dateStr": "string",
+        "isCustom": "boolean",
+        "timestamp": "number"
+      }
+    },
+    {
+      "name": "responses",
+      "fields": {
+        "id": "string",
+        "timestamp": "string",
+        "selectedDate": "string",
+        "selectedTime": "string",
+        "dateType": "string",
+        "customNotes": "string",
+        "status": "string"
+      }
+    },
+    {
+      "name": "stats",
+      "fields": {
+        "id": "string",
+        "noClicksCount": "number"
+      }
+    }
+  ]
+}
