@@ -270,7 +270,7 @@ export default function BoyfriendDashboard({ onClose }: BoyfriendDashboardProps)
               <input
                 id="pin-input"
                 type="password"
-                placeholder="লাভ কোড (যেমন: 143 বা love)"
+                placeholder="লাভ কোড"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
                 className="w-full text-center tracking-widest font-black bg-brand-peach/30 border-2 border-pink-100 focus:border-brand-cherry focus:ring-1 focus:ring-brand-rose rounded-2xl py-3.5 outline-none transition-all text-lg text-brand-maroon"
