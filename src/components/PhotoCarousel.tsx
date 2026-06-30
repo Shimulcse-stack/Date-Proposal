@@ -100,6 +100,7 @@ export default function PhotoCarousel() {
   const [newDateStr, setNewDateStr] = useState('');
   const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState('');
+  const [memoryToDelete, setMemoryToDelete] = useState<number | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -158,11 +159,7 @@ export default function PhotoCarousel() {
       console.warn("Could not sync Firestore memories back to LocalStorage:", err);
     }
 
-    if (combinedCustom.length > 0) {
-      setMemories([...combinedCustom, ...DEFAULT_MEMORIES]);
-    } else {
-      setMemories(DEFAULT_MEMORIES);
-    }
+    setMemories(combinedCustom);
   };
 
   useEffect(() => {
@@ -291,12 +288,7 @@ export default function PhotoCarousel() {
   };
 
   // Delete memory
-  const handleDeleteMemory = async (id: number, e: React.MouseEvent) => {
-    e.stopPropagation(); // prevent carousel navigation
-    if (!confirm("Are you sure you want to delete this memory? 😢")) {
-      return;
-    }
-
+  const executeDeleteMemory = async (id: number) => {
     // 1. Remove from LocalStorage
     try {
       const localRaw = localStorage.getItem('custom_memories');
@@ -387,83 +379,108 @@ export default function PhotoCarousel() {
 
       {/* Main Image Slider Wrapper */}
       <div className="relative h-64 sm:h-80 w-full overflow-hidden rounded-[24px] bg-brand-peach/10 shadow-inner">
-        <AnimatePresence initial={false} custom={direction} mode="popLayout">
-          <motion.div
-            key={currentIndex}
-            custom={direction}
-            variants={slideVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            className="absolute inset-0 w-full h-full"
-          >
-            {/* Image */}
-            <img 
-              src={memories[currentIndex]?.imageUrl} 
-              alt={memories[currentIndex]?.englishTitle} 
-              className="w-full h-full object-cover select-none pointer-events-none"
-              referrerPolicy="no-referrer"
-            />
-            
-            {/* Delete button for custom images */}
-            {memories[currentIndex]?.isCustom && (
-              <button
-                onClick={(e) => handleDeleteMemory(memories[currentIndex].id, e)}
-                className="absolute top-4 left-4 bg-white/90 hover:bg-red-500 hover:text-white text-red-500 p-2 rounded-full transition-all duration-200 z-10 cursor-pointer shadow-md active:scale-90 border border-red-100"
-                title="Delete this Memory"
+        {memories.length > 0 ? (
+          <>
+            <AnimatePresence initial={false} custom={direction} mode="popLayout">
+              <motion.div
+                key={currentIndex}
+                custom={direction}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                className="absolute inset-0 w-full h-full"
               >
-                <Trash2 className="w-4 h-4" />
-              </button>
+                {/* Image */}
+                <img 
+                  src={memories[currentIndex]?.imageUrl} 
+                  alt={memories[currentIndex]?.englishTitle} 
+                  className="w-full h-full object-cover select-none pointer-events-none"
+                  referrerPolicy="no-referrer"
+                />
+
+                {/* Gradient Overlay for Text legibility */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent pointer-events-none z-10" />
+                
+                {/* Delete button for custom images */}
+                {memories[currentIndex]?.isCustom && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMemoryToDelete(memories[currentIndex].id);
+                    }}
+                    className="absolute top-4 left-4 bg-white hover:bg-red-500 hover:text-white text-red-500 p-2.5 rounded-full transition-all duration-200 z-30 cursor-pointer shadow-lg active:scale-90 border border-red-100 flex items-center justify-center"
+                    title="Delete this Memory"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+
+                {/* Heart watermark */}
+                <div className="absolute top-4 right-4 bg-white/80 backdrop-blur-sm px-2.5 py-1 rounded-full text-[9px] font-bold text-brand-pink uppercase tracking-wider flex items-center gap-1 border border-pink-50 z-30">
+                  <Heart className="w-3 h-3 fill-brand-cherry text-brand-cherry animate-pulse" />
+                  {memories[currentIndex]?.dateStr || "Memory"}
+                </div>
+
+                {/* Slide Details */}
+                <div className="absolute bottom-0 inset-x-0 p-5 sm:p-6 text-white flex flex-col gap-1.5 text-left z-20">
+                  <span className="font-sans text-[10px] text-brand-rose font-extrabold uppercase tracking-widest flex items-center gap-1">
+                    {memories[currentIndex]?.isCustom && <Sparkles className="w-3 h-3 text-brand-rose" />}
+                    {memories[currentIndex]?.englishTitle}
+                  </span>
+                  <h4 className="font-serif text-lg sm:text-xl font-extrabold text-white leading-tight">
+                    {memories[currentIndex]?.title}
+                  </h4>
+                  <p className="font-sans text-xs sm:text-sm text-pink-100/90 leading-relaxed font-medium">
+                    {memories[currentIndex]?.caption}
+                  </p>
+                </div>
+              </motion.div>
+            </AnimatePresence>
+
+            {/* Carousel Navigation Buttons (only if we have memories) */}
+            {memories.length > 1 && (
+              <>
+                <div className="absolute inset-y-0 left-2 flex items-center z-10">
+                  <button
+                    onClick={handlePrev}
+                    className="p-2 rounded-full bg-white/80 hover:bg-white text-brand-maroon shadow-lg transition-all active:scale-95 cursor-pointer backdrop-blur-sm hover:text-brand-cherry hover:shadow-brand-rose/20"
+                    id="carousel-prev-btn"
+                  >
+                    <ChevronLeft className="w-5 h-5 stroke-[2.5]" />
+                  </button>
+                </div>
+
+                <div className="absolute inset-y-0 right-2 flex items-center z-10">
+                  <button
+                    onClick={handleNext}
+                    className="p-2 rounded-full bg-white/80 hover:bg-white text-brand-maroon shadow-lg transition-all active:scale-95 cursor-pointer backdrop-blur-sm hover:text-brand-cherry hover:shadow-brand-rose/20"
+                    id="carousel-next-btn"
+                  >
+                    <ChevronRight className="w-5 h-5 stroke-[2.5]" />
+                  </button>
+                </div>
+              </>
             )}
-
-            {/* Heart watermark */}
-            <div className="absolute top-4 right-4 bg-white/80 backdrop-blur-sm px-2.5 py-1 rounded-full text-[9px] font-bold text-brand-pink uppercase tracking-wider flex items-center gap-1 border border-pink-50">
-              <Heart className="w-3 h-3 fill-brand-cherry text-brand-cherry animate-pulse" />
-              {memories[currentIndex]?.dateStr || "Memory"}
+          </>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center gap-4">
+            <div className="w-16 h-16 bg-pink-50 rounded-full flex items-center justify-center text-brand-pink shadow-md">
+              <Camera className="w-8 h-8 text-brand-cherry" />
             </div>
-
-            {/* Gradient Overlay for Text legibility */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
-
-            {/* Slide Details */}
-            <div className="absolute bottom-0 inset-x-0 p-5 sm:p-6 text-white flex flex-col gap-1.5 text-left">
-              <span className="font-sans text-[10px] text-brand-rose font-extrabold uppercase tracking-widest flex items-center gap-1">
-                {memories[currentIndex]?.isCustom && <Sparkles className="w-3 h-3 text-brand-rose" />}
-                {memories[currentIndex]?.englishTitle}
-              </span>
-              <h4 className="font-serif text-lg sm:text-xl font-extrabold text-white leading-tight">
-                {memories[currentIndex]?.title}
-              </h4>
-              <p className="font-sans text-xs sm:text-sm text-pink-100/90 leading-relaxed font-medium">
-                {memories[currentIndex]?.caption}
+            <div className="space-y-1">
+              <h5 className="font-serif font-black text-brand-maroon text-base">আমাদের গ্যালারি এখনও খালি! 📸</h5>
+              <p className="font-sans text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                তোমাদের মিষ্টি মুহূর্তগুলোর সুন্দর সুন্দর ছবি যোগ করতে উপরের <strong className="text-brand-cherry font-bold">"ছবি যোগ করো"</strong> বাটনে ক্লিক করো।
               </p>
             </div>
-          </motion.div>
-        </AnimatePresence>
-
-        {/* Carousel Navigation Buttons (only if we have memories) */}
-        {memories.length > 1 && (
-          <>
-            <div className="absolute inset-y-0 left-2 flex items-center z-10">
-              <button
-                onClick={handlePrev}
-                className="p-2 rounded-full bg-white/80 hover:bg-white text-brand-maroon shadow-lg transition-all active:scale-95 cursor-pointer backdrop-blur-sm hover:text-brand-cherry hover:shadow-brand-rose/20"
-                id="carousel-prev-btn"
-              >
-                <ChevronLeft className="w-5 h-5 stroke-[2.5]" />
-              </button>
-            </div>
-
-            <div className="absolute inset-y-0 right-2 flex items-center z-10">
-              <button
-                onClick={handleNext}
-                className="p-2 rounded-full bg-white/80 hover:bg-white text-brand-maroon shadow-lg transition-all active:scale-95 cursor-pointer backdrop-blur-sm hover:text-brand-cherry hover:shadow-brand-rose/20"
-                id="carousel-next-btn"
-              >
-                <ChevronRight className="w-5 h-5 stroke-[2.5]" />
-              </button>
-            </div>
-          </>
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="px-5 py-2 rounded-full bg-brand-maroon hover:bg-brand-cherry text-white font-sans font-bold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md active:scale-95"
+            >
+              প্রথম ছবি আপলোড করো 💖
+            </button>
+          </div>
         )}
       </div>
 
@@ -650,6 +667,55 @@ export default function PhotoCarousel() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {memoryToDelete !== null && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-[32px] border-4 border-pink-100 max-w-sm w-full p-6 text-center shadow-2xl relative overflow-hidden flex flex-col items-center gap-4"
+            >
+              {/* Decorative Hearts */}
+              <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-r from-brand-rose via-brand-cherry to-brand-rose" />
+              
+              <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center text-rose-500">
+                <Trash2 className="w-8 h-8" />
+              </div>
+
+              <div className="space-y-1">
+                <h4 className="font-serif font-black text-brand-maroon text-lg">মেমোরিটি মুছে ফেলতে চাও? 😢</h4>
+                <p className="font-sans text-xs text-slate-500 leading-relaxed">
+                  তুমি কি নিশ্চিত যে তুমি এই মিষ্টি মেমোরিটি চিরতরে মুছে ফেলতে চাও? এটি আর ফিরিয়ে আনা যাবে না।
+                </p>
+              </div>
+
+              <div className="flex gap-3 w-full mt-2">
+                <button
+                  onClick={() => setMemoryToDelete(null)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-sans font-bold rounded-2xl text-xs transition-all cursor-pointer"
+                >
+                  না, থাক! (Cancel)
+                </button>
+                <button
+                  onClick={async () => {
+                    if (memoryToDelete !== null) {
+                      const id = memoryToDelete;
+                      setMemoryToDelete(null);
+                      await executeDeleteMemory(id);
+                    }
+                  }}
+                  className="flex-1 py-3 bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white font-sans font-extrabold rounded-2xl text-xs shadow-md transition-all cursor-pointer"
+                >
+                  হ্যাঁ, মুছে ফেলো (Delete)
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
