@@ -1,0 +1,6 @@
+{
+  "name": "Romantic Date Proposal",
+  "description": "An interactive, beautiful romantic proposal and date planner for a special someone.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
