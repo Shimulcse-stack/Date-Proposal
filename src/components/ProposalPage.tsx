@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Heart, MailOpen, AlertCircle, Sparkles } from 'lucide-react';
+import loveLetterHeaderImg from '../assets/images/love_letter_header_1782742689770.jpg';
 
 interface ProposalPageProps {
   onYes: (noClicksCount: number) => void;
@@ -154,7 +155,7 @@ export default function ProposalPage({ onYes, triggerConfetti }: ProposalPagePro
             {/* Header Image */}
             <div className="relative h-56 bg-brand-peach overflow-hidden flex items-center justify-center">
               <img
-                src="/src/assets/images/love_letter_header_1782742689770.jpg"
+                src={loveLetterHeaderImg}
                 alt="Lovely Hands Holding a Heart"
                 className="w-full h-full object-cover object-center"
                 referrerPolicy="no-referrer"

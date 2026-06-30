@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight, Pause, Play, Heart, Camera, Plus, Trash2, Upload, X, Loader2, Sparkles } from 'lucide-react';
 
+import strollImg from '../assets/images/couple_stroll_dreamy_1782743565363.jpg';
+import sunsetImg from '../assets/images/sunset_lovers_watercolor_1782743584276.jpg';
+import cafeImg from '../assets/images/cozy_cafe_date_1782743599943.jpg';
+
 interface Memory {
   id: number;
   imageUrl: string;
@@ -15,7 +19,7 @@ interface Memory {
 const DEFAULT_MEMORIES: Memory[] = [
   {
     id: 1,
-    imageUrl: "/src/assets/images/couple_stroll_dreamy_1782743565363.jpg",
+    imageUrl: strollImg,
     title: "হাতে হাত রেখে পথ চলা...",
     englishTitle: "Walking Hand in Hand",
     caption: "বসন্তের বিকেলে চেরি ব্লসমের নিচে তোমার মিষ্টি হাসি ছিল আমার সেরা উপহার।",
@@ -23,7 +27,7 @@ const DEFAULT_MEMORIES: Memory[] = [
   },
   {
     id: 2,
-    imageUrl: "/src/assets/images/sunset_lovers_watercolor_1782743584276.jpg",
+    imageUrl: sunsetImg,
     title: "সেই সোনালী বিকেল...",
     englishTitle: "Our Golden Sunsets",
     caption: "দিগন্তে যখন সূর্য ডুবে যায়, তোমার কাঁধে মাথা রেখে শান্ত লেকের ধারে বসে থাকা...",
@@ -31,7 +35,7 @@ const DEFAULT_MEMORIES: Memory[] = [
   },
   {
     id: 3,
-    imageUrl: "/src/assets/images/cozy_cafe_date_1782743599943.jpg",
+    imageUrl: cafeImg,
     title: "কফি ও তোমার গল্প...",
     englishTitle: "Cozy Cafe Moments",
     caption: "এক কাপ কফি, হালকা আলো আর তোমার মায়াবী চোখের দিকে তাকিয়ে অনন্তকাল কাটিয়ে দেয়া যায়।",
